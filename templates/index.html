@@ -1,0 +1,14 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Stock Prediction Results</title>
+</head>
+<body>
+    <h1>Stock Prediction Results for {{ ticker }}</h1>
+    <h2>Best Model: {{ best_model }}</h2>
+    <h3>RMSE: {{ best_rmse }}</h3>
+    <img src="data:image/png;base64,{{ prediction_plot }}" alt="Prediction Plot" style="max-width: 100%; height: auto;" />
+</body>
+</html>

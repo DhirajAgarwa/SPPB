@@ -1,0 +1,307 @@
+from flask import Flask, request, jsonify
+import yfinance as yf
+from datetime import datetime, timedelta
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import io
+import base64
+from math import ceil
+from sklearn.preprocessing import MinMaxScaler
+from sklearn import neighbors
+from sklearn.model_selection import GridSearchCV
+from keras.models import Sequential
+from keras.layers import Dense, LSTM
+
+from flask import Flask, request, jsonify
+import yfinance as yf
+from datetime import datetime, timedelta
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import io
+import base64
+from math import ceil
+from sklearn.preprocessing import MinMaxScaler
+from sklearn import neighbors
+from sklearn.model_selection import GridSearchCV
+from keras.models import Sequential
+from keras.layers import Dense, LSTM
+
+app = Flask(__name__)
+
+def plot_to_img():
+    buf = io.BytesIO()
+    plt.savefig(buf, format='png')
+    buf.seek(0)
+    img_bytes = buf.getvalue()
+    encoded = base64.b64encode(img_bytes).decode('utf-8')
+    buf.close()
+    plt.clf()
+    return encoded
+
+def get_stock_data(ticker):
+    end_date = datetime.today()
+    start_date = end_date - timedelta(days=365 * 10)
+    start_date_str = start_date.strftime('%Y-%m-%d')
+    end_date_str = end_date.strftime('%Y-%m-%d')
+    df1 = yf.download(ticker, start=start_date_str, end=end_date_str)
+    return df1
+
+def prepare_data(df1,ticker):
+    window = 20  # Default window size for Bollinger Bands
+    df1['MA'] = df1['Close'].rolling(window=window).mean()  # Moving Average
+    df1['STD'] = df1['Close'].rolling(window=window).std()  # Standard Deviation
+    df1['Upper Band'] = df1['MA'] + (df1['STD'] * 2)         # Upper Bollinger Band
+    df1['Lower Band'] = df1['MA'] - (df1['STD'] * 2)         # Lower Bollinger Band
+
+    # Plot the data
+    df1['Date'] = pd.to_datetime(df1.index)
+    csv_filename = f"{ticker}.csv"
+    df1.to_csv(csv_filename)
+    df = pd.read_csv(csv_filename)
+    df['Date'] = pd.to_datetime(df.Date,format='%Y-%m-%d')
+    df.index = df['Date']
+
+    # Drop rows where the index is NaT
+    df = df.dropna(subset=['Open'])
+    # Convert 'Open' column to numeric, forcing errors to NaN
+    df['Open'] = pd.to_numeric(df['Open'], errors='coerce')
+    # Drop any rows where 'Open' is NaN after conversion
+    df = df.dropna(subset=['Open'])
+
+    # Drop rows where the index is NaT
+    df = df.dropna(subset=['Close'])
+    # Convert 'Close' column to numeric, forcing errors to NaN
+    df['Close'] = pd.to_numeric(df['Close'], errors='coerce')
+    # Drop any rows where 'Close' is NaN after conversion
+    df = df.dropna(subset=['Close'])
+    return df
+
+@app.route('/predict')
+def predict():
+    ticker = request.args.get('ticker')
+    if not ticker:
+        return jsonify({'error': 'Please provide a stock ticker in the URL as ?ticker=XXXX'}), 400
+
+    df = get_stock_data(ticker)
+    if df.empty:
+        return jsonify({'error': f'No data found for ticker {ticker}'}), 404
+    try:
+        df = prepare_data(df,ticker)
+    except KeyError as e:
+        return jsonify({'error': str(e)}), 400
+
+    results = {}
+
+    # Moving Average Prediction
+    ma_rmse, ma_img = moving_avg_prediction(df)
+    results['Moving Average'] = {'rmse': ma_rmse, 'img': ma_img}
+
+    # KNN Prediction
+    knn_rmse, knn_img = k_nearest_neighbours_predict(df)
+    results['K-Nearest Neighbors'] = {'rmse': knn_rmse, 'img': knn_img}
+
+    # LSTM Prediction
+    lstm_rmse, lstm_img = lstm_prediction(df)
+    results['LSTM'] = {'rmse': lstm_rmse, 'img': lstm_img}
+
+    # ANN Prediction
+    ann_rmse, ann_img = ann_prediction(df)
+    results['ANN'] = {'rmse': ann_rmse, 'img': ann_img}
+
+    # FNN Prediction
+    fnn_rmse, fnn_img = fnn_prediction(df)
+    results['FNN'] = {'rmse': fnn_rmse, 'img': fnn_img}
+
+    # Find best model by RMSE
+    best_model = min(results.items(), key=lambda x: x[1]['rmse'])
+    best_name = best_model[0]
+    best_rmse = best_model[1]['rmse']
+    best_img = best_model[1]['img']
+
+    response = {
+        'ticker': ticker,
+        'best_model': best_name,
+        'best_rmse': best_rmse,
+        'prediction_plot': best_img
+    }
+
+    return jsonify(response)
+
+def moving_avg_prediction(df):
+    shape = df.shape[0]
+    df_new = df[['Close']]
+    train_set = df_new.iloc[:ceil(shape * 0.75)]
+    valid_set = df_new.iloc[ceil(shape * 0.75):]
+    preds = []
+    for i in range(0, valid_set.shape[0]):
+        a = train_set['Close'][len(train_set) - valid_set.shape[0] + i:].sum() + sum(preds)
+        b = a / (valid_set.shape[0])
+        preds.append(b)
+    rms = np.sqrt(np.mean(np.power((np.array(valid_set['Close']) - preds), 2)))
+    valid_set['Predictions'] = preds
+    plt.figure(figsize=(10,6))
+    plt.plot(train_set['Close'], label='Training Data')
+    plt.plot(valid_set['Close'], label='Actual Data')
+    plt.plot(valid_set['Predictions'], label='Predicted Data')
+    plt.legend()
+    plt.title('Moving Average Prediction')
+    img = plot_to_img()
+    return rms, img
+
+def k_nearest_neighbours_predict(df):
+    shape = df.shape[0]
+    df_new = df[['Close']]
+    train_set = df_new.iloc[:ceil(shape * 0.75)]
+    valid_set = df_new.iloc[ceil(shape * 0.75):]
+    train = train_set.reset_index()
+    valid = valid_set.reset_index()
+    x_train = train['Date'].map(datetime.toordinal)
+    y_train = train[['Close']]
+    x_valid = valid['Date'].map(datetime.toordinal)
+    y_valid = valid[['Close']]
+    scaler = MinMaxScaler(feature_range=(0, 1))
+    x_train_scaled = scaler.fit_transform(np.array(x_train).reshape(-1, 1))
+    x_valid_scaled = scaler.transform(np.array(x_valid).reshape(-1, 1))
+    knn = neighbors.KNeighborsRegressor()
+    params = {'n_neighbors': [2, 3, 4, 5, 6, 7, 8, 9]}
+    model = GridSearchCV(knn, params, cv=5)
+    model.fit(x_train_scaled, y_train)
+    preds = model.predict(x_valid_scaled)
+    rms = np.sqrt(np.mean(np.power((np.array(y_valid) - np.array(preds)), 2)))
+    valid_set['Predictions'] = preds
+    plt.figure(figsize=(10,6))
+    plt.plot(train_set['Close'], label='Training Data')
+    plt.plot(valid_set['Close'], label='Actual Data')
+    plt.plot(valid_set['Predictions'], label='Predicted Data')
+    plt.legend()
+    plt.title('K-Nearest Neighbors Prediction')
+    img = plot_to_img()
+    return rms, img
+
+def lstm_prediction(df):
+    shape = df.shape[0]
+    df_new = df[['Close']]
+    dataset = df_new.values
+    train = df_new[:ceil(shape * 0.75)]
+    valid = df_new[ceil(shape * 0.75):]
+    scaler = MinMaxScaler(feature_range=(0, 1))
+    scaled_data = scaler.fit_transform(dataset)
+    x_train, y_train = [], []
+    for i in range(40, len(train)):
+        x_train.append(scaled_data[i-40:i, 0])
+        y_train.append(scaled_data[i, 0])
+    x_train, y_train = np.array(x_train), np.array(y_train)
+    x_train = np.reshape(x_train, (x_train.shape[0], x_train.shape[1], 1))
+    model = Sequential()
+    model.add(LSTM(units=50, return_sequences=True, input_shape=(x_train.shape[1], 1)))
+    model.add(LSTM(units=50))
+    model.add(Dense(1))
+    model.compile(loss='mean_squared_error', optimizer='adam')
+    model.fit(x_train, y_train, epochs=1, batch_size=1, verbose=0)
+    inputs = df_new[len(df_new) - len(valid) - 40:].values
+    inputs = inputs.reshape(-1, 1)
+    inputs = scaler.transform(inputs)
+    X_test = []
+    for i in range(40, inputs.shape[0]):
+        X_test.append(inputs[i-40:i, 0])
+    X_test = np.array(X_test)
+    X_test = np.reshape(X_test, (X_test.shape[0], X_test.shape[1], 1))
+    closing_price = model.predict(X_test)
+    closing_price = scaler.inverse_transform(closing_price)
+    rms = np.sqrt(np.mean(np.power((valid - closing_price), 2)))
+    valid['Predictions'] = closing_price
+    plt.figure(figsize=(10,6))
+    plt.plot(train['Close'], label='Training Data')
+    plt.plot(valid['Close'], label='Actual Data')
+    plt.plot(valid['Predictions'], label='Predicted Data')
+    plt.legend()
+    plt.title('LSTM Prediction')
+    img = plot_to_img()
+    return rms, img
+
+def ann_prediction(df):
+    shape = df.shape[0]
+    df_new = df[['Close']]
+    train = df_new[:ceil(shape * 0.75)]
+    valid = df_new[ceil(shape * 0.75):]
+    from tensorflow.keras.models import Sequential
+    from tensorflow.keras.layers import Dense
+    scaler = MinMaxScaler(feature_range=(0, 1))
+    scaled_data = scaler.fit_transform(df_new)
+    x_train, y_train = [], []
+    for i in range(40, len(train)):
+        x_train.append(scaled_data[i-40:i, 0])
+        y_train.append(scaled_data[i, 0])
+    x_train, y_train = np.array(x_train), np.array(y_train)
+    model = Sequential()
+    model.add(Dense(units=64, activation='relu', input_dim=x_train.shape[1]))
+    model.add(Dense(units=32, activation='relu'))
+    model.add(Dense(units=1))
+    model.compile(optimizer='adam', loss='mean_squared_error')
+    model.fit(x_train, y_train, epochs=1, batch_size=1, verbose=0)
+    inputs = df_new[len(df_new) - len(valid) - 40:].values
+    inputs = inputs.reshape(-1, 1)
+    inputs = scaler.transform(inputs)
+    X_test = []
+    for i in range(40, inputs.shape[0]):
+        X_test.append(inputs[i-40:i, 0])
+    X_test = np.array(X_test)
+    predictions = model.predict(X_test)
+    predictions = scaler.inverse_transform(predictions)
+    rms = np.sqrt(np.mean(np.power((valid['Close'] - predictions.flatten()), 2)))
+    valid['Predictions'] = predictions
+    plt.figure(figsize=(10,6))
+    plt.plot(train['Close'], label='Training Data')
+    plt.plot(valid['Close'], label='Actual Data')
+    plt.plot(valid['Predictions'], label='Predicted Data')
+    plt.legend()
+    plt.title('ANN Prediction')
+    img = plot_to_img()
+    return rms, img
+
+def fnn_prediction(df):
+    shape = df.shape[0]
+    df_new = df[['Close']]
+    dataset = df_new.values
+    train = df_new[:ceil(shape * 0.75)]
+    valid = df_new[ceil(shape * 0.75):]
+    scaler = MinMaxScaler(feature_range=(0, 1))
+    scaled_data = scaler.fit_transform(dataset)
+    x_train, y_train = [], []
+    for i in range(40, len(train)):
+        x_train.append(scaled_data[i-40:i, 0])
+        y_train.append(scaled_data[i, 0])
+    x_train, y_train = np.array(x_train), np.array(y_train)
+    from tensorflow.keras.models import Sequential
+    from tensorflow.keras.layers import Dense
+    model = Sequential()
+    model.add(Dense(units=128, activation='relu', input_dim=x_train.shape[1]))
+    model.add(Dense(units=64, activation='relu'))
+    model.add(Dense(units=32, activation='relu'))
+    model.add(Dense(1))
+    model.compile(loss='mean_squared_error', optimizer='adam')
+    model.fit(x_train, y_train, epochs=1, batch_size=1, verbose=0)
+    inputs = df_new[len(df_new) - len(valid) - 40:].values
+    inputs = inputs.reshape(-1, 1)
+    inputs = scaler.transform(inputs)
+    X_test = []
+    for i in range(40, inputs.shape[0]):
+        X_test.append(inputs[i-40:i, 0])
+    X_test = np.array(X_test)
+    predictions = model.predict(X_test)
+    predictions = scaler.inverse_transform(predictions)
+    rms = np.sqrt(np.mean(np.power((valid['Close'] - predictions.flatten()), 2)))
+    valid['Predictions'] = predictions
+    plt.figure(figsize=(10,6))
+    plt.plot(train['Close'], label='Training Data')
+    plt.plot(valid['Close'], label='Actual Data')
+    plt.plot(valid['Predictions'], label='Predicted Data')
+    plt.legend()
+    plt.title('FNN Prediction')
+    img = plot_to_img()
+    return rms, img
+
+if __name__ == '__main__':
+    app.run(debug=True)

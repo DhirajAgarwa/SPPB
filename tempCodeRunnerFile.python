@@ -1,0 +1,35 @@
+from yahooquery import search
+import yfinance as yf
+
+def check_stock(input_str):
+    input_str = input_str.strip().upper()
+    
+    # First, try to use it as a ticker symbol
+    try:
+        ticker = yf.Ticker(input_str)
+        info = ticker.info
+        if "shortName" in info and info["shortName"]:
+            print(f"✅ Ticker Valid: {info['shortName']} ({input_str})")
+            return
+    except Exception:
+        pass  # Move on to name search
+
+    # If ticker check failed, try to search by name
+    print(f"🔍 Ticker '{input_str}' not found. Searching by name...")
+    result = search(input_str)
+    quotes = result.get("quotes", [])
+
+    if not quotes:
+        print(f"❌ No stock found matching '{input_str}'.")
+        return
+
+    print(f"✅ Found {len(quotes)} match(es):")
+    for item in quotes:
+        name = item.get("shortname", "N/A")
+        symbol = item.get("symbol", "N/A")
+        exch = item.get("exchange", "N/A")
+        print(f"• {name} → Ticker: {symbol} (Exchange: {exch})")
+
+
+
+check_stock("KINGFISHER")

@@ -1,0 +1,11 @@
+Flask>=2.0
+yfinance
+pandas
+numpy
+matplotlib
+scikit-learn
+keras
+tensorflow
+requests
+Pillow
+yahooquery
