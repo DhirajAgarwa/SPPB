@@ -41,12 +41,14 @@ def plot_to_img():
     return encoded
 
 def get_stock_data(ticker):
-    end_date = datetime.today()
+    end_date = datetime.today() - timedelta(days=0)
     start_date = end_date - timedelta(days=365 * 10)
     start_date_str = start_date.strftime('%Y-%m-%d')
     end_date_str = end_date.strftime('%Y-%m-%d')
     df1 = yf.download(ticker, start=start_date_str, end=end_date_str)
     return df1
+
+import os
 
 def prepare_data(df1,ticker):
     window = 20  # Default window size for Bollinger Bands
@@ -76,6 +78,11 @@ def prepare_data(df1,ticker):
     df['Close'] = pd.to_numeric(df['Close'], errors='coerce')
     # Drop any rows where 'Close' is NaN after conversion
     df = df.dropna(subset=['Close'])
+
+    # Delete the CSV file after processing
+    if os.path.exists(csv_filename):
+        os.remove(csv_filename)
+
     return df
 
 @app.route('/predict')
@@ -95,36 +102,58 @@ def predict():
     results = {}
 
     # Moving Average Prediction
-    ma_rmse, ma_img = moving_avg_prediction(df)
-    results['Moving Average'] = {'rmse': ma_rmse, 'img': ma_img}
+    ma_rmse, ma_img, ma_pred = moving_avg_prediction(df)
+    ma_confidence = max(0, 100 - ma_rmse * 10)
+    results['Moving Average'] = {'rmse': ma_rmse, 'img': ma_img,  'price_pred': ma_pred}
 
     # KNN Prediction
-    knn_rmse, knn_img = k_nearest_neighbours_predict(df)
-    results['K-Nearest Neighbors'] = {'rmse': knn_rmse, 'img': knn_img}
+    knn_rmse, knn_img, knn_pred = k_nearest_neighbours_predict(df)
+    knn_confidence = max(0, 100 - knn_rmse * 10)
+    results['K-Nearest Neighbors'] = {'rmse': knn_rmse, 'img': knn_img,  'price_pred': knn_pred}
 
     # LSTM Prediction
-    lstm_rmse, lstm_img = lstm_prediction(df)
-    results['LSTM'] = {'rmse': lstm_rmse, 'img': lstm_img}
+    lstm_rmse, lstm_img, lstm_pred = lstm_prediction(df)
+    lstm_confidence = max(0, 100 - lstm_rmse * 10)
+    results['LSTM'] = {'rmse': lstm_rmse, 'img': lstm_img,  'price_pred': lstm_pred}
 
     # ANN Prediction
-    ann_rmse, ann_img = ann_prediction(df)
-    results['ANN'] = {'rmse': ann_rmse, 'img': ann_img}
+    ann_rmse, ann_img, ann_pred = ann_prediction(df)
+    ann_confidence = max(0, 100 - ann_rmse * 10)
+    results['ANN'] = {'rmse': ann_rmse, 'img': ann_img, 'price_pred': ann_pred}
 
     # FNN Prediction
-    fnn_rmse, fnn_img = fnn_prediction(df)
-    results['FNN'] = {'rmse': fnn_rmse, 'img': fnn_img}
+    fnn_rmse, fnn_img, fnn_pred = fnn_prediction(df)
+    fnn_confidence = max(0, 100 - fnn_rmse * 10)
+    results['FNN'] = {'rmse': fnn_rmse, 'img': fnn_img,  'price_pred': fnn_pred}
 
     # Find best model by RMSE
     best_model = min(results.items(), key=lambda x: x[1]['rmse'])
     best_name = best_model[0]
     best_rmse = best_model[1]['rmse']
     best_img = best_model[1]['img']
+    best_price_pred = best_model[1]['price_pred']
+    best_confidence = (100-best_rmse)
+
+    import json
+    import numpy as np
+
+    def convert(o):
+        if isinstance(o, np.float32):
+            return float(o)
+        raise TypeError
+
+    current_price = None
+    if not df.empty:
+        current_price = float(df['Close'][-1])
 
     response = {
         'ticker': ticker,
         'best_model': best_name,
         'best_rmse': best_rmse,
-        'prediction_plot': best_img
+        'prediction_plot': best_img,
+        'best_price_pred': float(best_price_pred) if best_price_pred is not None else None,
+        'best_confidence': float(best_confidence) if best_confidence is not None else None,
+        'current_price': current_price
     }
 
     return jsonify(response)
@@ -148,7 +177,8 @@ def moving_avg_prediction(df):
     plt.legend()
     plt.title('Moving Average Prediction')
     img = plot_to_img()
-    return rms, img
+    price_pred = preds[-1] if preds else None
+    return rms, img, price_pred
 
 def k_nearest_neighbours_predict(df):
     shape = df.shape[0]
@@ -178,7 +208,8 @@ def k_nearest_neighbours_predict(df):
     plt.legend()
     plt.title('K-Nearest Neighbors Prediction')
     img = plot_to_img()
-    return rms, img
+    price_pred = preds[-1] if len(preds) > 0 else None
+    return rms, img, price_pred
 
 def lstm_prediction(df):
     shape = df.shape[0]
@@ -219,7 +250,8 @@ def lstm_prediction(df):
     plt.legend()
     plt.title('LSTM Prediction')
     img = plot_to_img()
-    return rms, img
+    price_pred = closing_price[-1][0] if len(closing_price) > 0 else None
+    return rms, img, price_pred
 
 def ann_prediction(df):
     shape = df.shape[0]
@@ -259,7 +291,8 @@ def ann_prediction(df):
     plt.legend()
     plt.title('ANN Prediction')
     img = plot_to_img()
-    return rms, img
+    price_pred = predictions[-1][0] if len(predictions) > 0 else None
+    return rms, img, price_pred
 
 def fnn_prediction(df):
     shape = df.shape[0]
@@ -301,7 +334,8 @@ def fnn_prediction(df):
     plt.legend()
     plt.title('FNN Prediction')
     img = plot_to_img()
-    return rms, img
+    price_pred = predictions[-1][0] if len(predictions) > 0 else None
+    return rms, img, price_pred
 
 if __name__ == '__main__':
     app.run(debug=True)

@@ -7,8 +7,34 @@
 </head>
 <body>
     <h1>Stock Prediction Results for {{ ticker }}</h1>
+    <h2>Current Price: {{ "%.2f"|format(current_price) }}</h2>
     <h2>Best Model: {{ best_model }}</h2>
     <h3>RMSE: {{ best_rmse }}</h3>
+    <h3>Predicted Price: {{ "%.2f"|format(best_price_pred) }}</h3>
+    <h3>Confidence: {{ "%.2f"|format(best_confidence) }}%</h3>
     <img src="data:image/png;base64,{{ prediction_plot }}" alt="Prediction Plot" style="max-width: 100%; height: auto;" />
+    <h2>All Models</h2>
+    <table border="1" cellpadding="5" cellspacing="0">
+        <thead>
+            <tr>
+                <th>Model</th>
+                <th>RMSE</th>
+                <th>Confidence (%)</th>
+                <th>Price Prediction</th>
+                <th>Plot</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for model_name, data in all_results.items() %}
+            <tr>
+                <td>{{ model_name }}</td>
+                <td>{{ "%.4f"|format(data['rmse']) }}</td>
+                <td>{{ "%.2f"|format(data['confidence']) }}</td>
+                <td>{{ "%.2f"|format(data['price_pred']) }}</td>
+                <td><img src="data:image/png;base64,{{ data['img'] }}" alt="{{ model_name }} Plot" style="max-width: 200px; height: auto;" /></td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
 </body>
 </html>
