@@ -14,21 +14,6 @@ from sklearn.model_selection import GridSearchCV
 from keras.models import Sequential
 from keras.layers import Dense, LSTM
 
-# from flask import Flask, request, jsonify
-# import yfinance as yf
-# from datetime import datetime, timedelta
-# import pandas as pd
-# import numpy as np
-# import matplotlib.pyplot as plt
-# import io
-# import base64
-# from math import ceil
-# from sklearn.preprocessing import MinMaxScaler
-# from sklearn import neighbors
-# from sklearn.model_selection import GridSearchCV
-# from keras.models import Sequential
-# from keras.layers import Dense, LSTM
-
 app = Flask(__name__)
 
 def plot_to_img():
@@ -49,9 +34,7 @@ def get_stock_data(ticker):
     df1 = yf.download(ticker, start=start_date_str, end=end_date_str)
     return df1
 
-
 def prepare_data(df1,ticker):
-    # Plot the data
     df1['Date'] = pd.to_datetime(df1.index)
     csv_filename = f"{ticker}.csv"
     df1.to_csv(csv_filename)
@@ -59,21 +42,14 @@ def prepare_data(df1,ticker):
     df['Date'] = pd.to_datetime(df.Date,format='%Y-%m-%d')
     df.index = df['Date']
 
-    # Drop rows where the index is NaT
     df = df.dropna(subset=['Open'])
-    # Convert 'Open' column to numeric, forcing errors to NaN
     df['Open'] = pd.to_numeric(df['Open'], errors='coerce')
-    # Drop any rows where 'Open' is NaN after conversion
     df = df.dropna(subset=['Open'])
 
-    # Drop rows where the index is NaT
     df = df.dropna(subset=['Close'])
-    # Convert 'Close' column to numeric, forcing errors to NaN
     df['Close'] = pd.to_numeric(df['Close'], errors='coerce')
-    # Drop any rows where 'Close' is NaN after conversion
     df = df.dropna(subset=['Close'])
 
-    # Delete the CSV file after processing
     if os.path.exists(csv_filename):
         os.remove(csv_filename)
 
@@ -95,42 +71,34 @@ def predict():
 
     results = {}
 
-    # Moving Average Prediction
     ma_rmse, ma_img, ma_pred = moving_avg_prediction(df)
     ma_confidence = max(0, 100 - ma_rmse * 10)
     results['Moving Average'] = {'rmse': ma_rmse, 'img': ma_img,  'price_pred': ma_pred}
 
-    # KNN Prediction
     knn_rmse, knn_img, knn_pred = k_nearest_neighbours_predict(df)
     knn_confidence = max(0, 100 - knn_rmse * 10)
     results['K-Nearest Neighbors'] = {'rmse': knn_rmse, 'img': knn_img,  'price_pred': knn_pred}
 
-    # LSTM Prediction
     lstm_rmse, lstm_img, lstm_pred = lstm_prediction(df)
     lstm_confidence = max(0, 100 - lstm_rmse * 10)
     results['LSTM'] = {'rmse': lstm_rmse, 'img': lstm_img,  'price_pred': lstm_pred}
 
-    # ANN Prediction
     ann_rmse, ann_img, ann_pred = ann_prediction(df)
     ann_confidence = max(0, 100 - ann_rmse * 10)
     results['ANN'] = {'rmse': ann_rmse, 'img': ann_img, 'price_pred': ann_pred}
 
-    # FNN Prediction
     fnn_rmse, fnn_img, fnn_pred = fnn_prediction(df)
     fnn_confidence = max(0, 100 - fnn_rmse * 10)
     results['FNN'] = {'rmse': fnn_rmse, 'img': fnn_img,  'price_pred': fnn_pred}
 
-    # Ensemble LSTM + ANN Prediction
     ensemble_rmse, ensemble_img, ensemble_pred = ensemble_lstm_ann_prediction(df)
     ensemble_confidence = max(0, 100 - ensemble_rmse * 10)
     results['Ensemble LSTM+ANN'] = {'rmse': ensemble_rmse, 'img': ensemble_img, 'price_pred': ensemble_pred}
 
-    # Ensemble LSTM + FNN Prediction
     ensemble_fnn_rmse, ensemble_fnn_img, ensemble_fnn_pred = ensemble_lstm_fnn_prediction(df)
     ensemble_fnn_confidence = max(0, 100 - ensemble_fnn_rmse * 10)
     results['Ensemble LSTM+FNN'] = {'rmse': ensemble_fnn_rmse, 'img': ensemble_fnn_img, 'price_pred': ensemble_fnn_pred}
 
-    # Find best model by RMSE
     best_model = min(results.items(), key=lambda x: x[1]['rmse'])
     best_name = best_model[0]
     best_rmse = best_model[1]['rmse']
@@ -348,39 +316,27 @@ def fnn_prediction(df):
     return rms, img, price_pred
 
 def ensemble_lstm_ann_prediction(df):
-    # Get LSTM predictions
     lstm_rmse, lstm_img, lstm_pred = lstm_prediction(df)
-    # Get ANN predictions
     ann_rmse, ann_img, ann_pred = ann_prediction(df)
 
-    # Calculate weighted average of predictions based on inverse RMSE
     lstm_weight = 1 / lstm_rmse if lstm_rmse != 0 else 0.5
     ann_weight = 1 / ann_rmse if ann_rmse != 0 else 0.5
     total_weight = lstm_weight + ann_weight
     ensemble_pred = (lstm_pred * lstm_weight + ann_pred * ann_weight) / total_weight
 
-    # Combine RMSE as weighted average
     ensemble_rmse = (lstm_rmse * lstm_weight + ann_rmse * ann_weight) / total_weight
 
-    # For plotting, average the predictions from both models on the validation set
     shape = df.shape[0]
     df_new = df[['Close']]
     train = df_new[:ceil(shape * 0.75)]
     valid = df_new[ceil(shape * 0.75):]
 
-    # Get LSTM and ANN predictions on validation set
-    # Reuse code from lstm_prediction and ann_prediction but only get predictions array
-    # For simplicity, we will call the functions and extract predictions from valid['Predictions']
-
-    # Get LSTM predictions on valid set
     _, _, _ = lstm_prediction(df)
     lstm_valid_preds = valid['Predictions'].values if 'Predictions' in valid else np.array([])
 
-    # Get ANN predictions on valid set
     _, _, _ = ann_prediction(df)
     ann_valid_preds = valid['Predictions'].values if 'Predictions' in valid else np.array([])
 
-    # If predictions are empty, fallback to ensemble_pred for plotting
     if len(lstm_valid_preds) == 0 or len(ann_valid_preds) == 0:
         ensemble_valid_preds = np.array([ensemble_pred] * len(valid))
     else:
@@ -417,20 +373,14 @@ def ensemble_lstm_fnn_prediction(df):
     train = df_new[:ceil(shape * 0.75)]
     valid = df_new[ceil(shape * 0.75):]
 
-    # Get LSTM and FNN predictions on validation set
-    # Reuse code from lstm_prediction and fnn_prediction but only get predictions array
-    # For simplicity, we will call the functions and extract predictions from valid['Predictions']
+    # Get LSTM and FNN predictions on validation set by calling prediction functions
+    lstm_rmse, _, lstm_predictions = lstm_prediction(df)
+    fnn_rmse, _, fnn_predictions = fnn_prediction(df)
 
-    # Get LSTM predictions on valid set
-    _, _, _ = lstm_prediction(df)
-    lstm_valid_preds = valid['Predictions'].values if 'Predictions' in valid else np.array([])
+    lstm_valid_preds = np.array(lstm_predictions).flatten()
+    fnn_valid_preds = np.array(fnn_predictions).flatten()
 
-    # Get FNN predictions on valid set
-    _, _, _ = fnn_prediction(df)
-    fnn_valid_preds = valid['Predictions'].values if 'Predictions' in valid else np.array([])
-
-    # If predictions are empty, fallback to ensemble_pred for plotting
-    if len(lstm_valid_preds) == 0 or len(fnn_valid_preds) == 0:
+    if len(lstm_valid_preds) != len(valid) or len(fnn_valid_preds) != len(valid) or len(lstm_valid_preds) == 0 or len(fnn_valid_preds) == 0:
         ensemble_valid_preds = np.array([ensemble_pred] * len(valid))
     else:
         ensemble_valid_preds = (lstm_valid_preds + fnn_valid_preds) / 2
@@ -444,7 +394,6 @@ def ensemble_lstm_fnn_prediction(df):
     img = plot_to_img()
 
     return ensemble_rmse, img, ensemble_pred
-
 
 if __name__ == '__main__':
     app.run(debug=True)
