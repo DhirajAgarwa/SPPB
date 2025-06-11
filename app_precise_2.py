@@ -13,8 +13,11 @@ from sklearn import neighbors
 from sklearn.model_selection import GridSearchCV
 from keras.models import Sequential
 from keras.layers import Dense, LSTM
+from flask_cors import CORS
 
 app = Flask(__name__)
+
+CORS(app)
 
 def plot_to_img():
     buf = io.BytesIO()
