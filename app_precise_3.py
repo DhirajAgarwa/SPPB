@@ -1,4 +1,5 @@
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 import yfinance as yf
 from datetime import datetime, timedelta
 import pandas as pd
@@ -15,6 +16,7 @@ from keras.models import Sequential
 from keras.layers import Dense, LSTM
 
 app = Flask(__name__)
+CORS(app)
 
 def plot_to_img():
     buf = io.BytesIO()
